@@ -1,24 +1,51 @@
 import requests
-import xml.etree.ElementTree as ET
 from flask import Flask, request, render_template_string
-import pickle
-def get_live_news():
-    url = "https://news.google.com/rss?hl=en-IN&gl=IN&ceid=IN:en"
-    response = requests.get(url)
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics.pairwise import cosine_similarity
 
-    root = ET.fromstring(response.content)
+# ---------------- APP ----------------
+app = Flask(__name__)
+
+# ---------------- API KEY ----------------
+API_KEY = "53946c31a306a067aea76b83b701b5e3"
+
+# ---------------- LIVE NEWS FUNCTION ----------------
+def get_live_news(query="news"):
+    url = f"http://api.mediastack.com/v1/news?access_key={API_KEY}&languages=en&limit=5&keywords={query}"
+    
+    response = requests.get(url)
+    data = response.json()
 
     headlines = []
-    for item in root.findall(".//item")[:5]:
-        headlines.append(item.find("title").text)
+
+    if "data" in data:
+        for item in data["data"][:5]:
+            headlines.append(item["title"])
 
     return headlines
 
-app = Flask(__name__)
 
-model = pickle.load(open("model.pkl","rb"))
-vectorizer = pickle.load(open("vectorizer.pkl","rb"))
+# ---------------- CHECK NEWS FUNCTION ----------------
+def detect_news(user_news):
+    headlines = get_live_news(user_news)
 
+    if len(headlines) == 0:
+        return "UNVERIFIED"
+
+    texts = [user_news] + headlines
+
+    vectorizer = TfidfVectorizer()
+    tfidf = vectorizer.fit_transform(texts)
+
+    score = cosine_similarity(tfidf[0:1], tfidf[1:]).max()
+
+    if score > 0.30:
+        return "REAL"
+    else:
+        return "FAKE"
+
+
+# ---------------- HTML PAGE ----------------
 html_page = """
 <!DOCTYPE html>
 <html>
@@ -89,6 +116,10 @@ button:hover{
     color:red;
 }
 
+.unverified{
+    color:orange;
+}
+
 .footer{
     margin-top:25px;
     font-size:13px;
@@ -104,7 +135,7 @@ button:hover{
 
 <h1>Fake News Detection</h1>
 
-<p>Paste any news headline or article to check if it is real or fake.</p>
+<p>Paste any latest news headline or article to check if it is real or fake.</p>
 
 <form method="POST">
 <textarea name="news" placeholder="Enter news text here..."></textarea>
@@ -115,14 +146,22 @@ button:hover{
 {% if prediction %}
 <div class="result">
 Prediction:
-<span class="{{'real' if prediction=='REAL' else 'fake'}}">
+<span class="
+{% if prediction=='REAL' %}
+real
+{% elif prediction=='FAKE' %}
+fake
+{% else %}
+unverified
+{% endif %}
+">
 {{prediction}}
 </span>
 </div>
 {% endif %}
 
 <div class="footer">
-Machine Learning Project • TF-IDF 
+Live News AI Checker • MediaStack API
 </div>
 
 </div>
@@ -131,28 +170,29 @@ Machine Learning Project • TF-IDF
 </html>
 """
 
-@app.route("/", methods=["GET","POST"])
+# ---------------- ROUTE ----------------
+@app.route("/", methods=["GET", "POST"])
 def home():
-    prediction=None
+    prediction = None
 
-    if request.method=="POST":
-        news=request.form["news"]
-        vect=vectorizer.transform([news])
-        prediction=model.predict(vect)[0]
+    if request.method == "POST":
+        news = request.form["news"]
+        prediction = detect_news(news)
 
-    return render_template_string(html_page,prediction=prediction)
+    return render_template_string(html_page, prediction=prediction)
 
-if __name__=="__main__":
+
+# ---------------- RUN ----------------
+if __name__ == "__main__":
+
+    print("Latest Live News Predictions:")
     live_news = get_live_news()
 
-    print("Latest News Headlines with Prediction:")
-
     for news in live_news:
-        vect = vectorizer.transform([news])
-        prediction = model.predict(vect)[0]
+        result = detect_news(news)
 
         print(news)
-        print("Prediction:", prediction)
-        print("------------------")
+        print("Prediction:", result)
+        print("--------------------")
 
     app.run(debug=True)
