@@ -1,5 +1,18 @@
+import requests
+import xml.etree.ElementTree as ET
 from flask import Flask, request, render_template_string
 import pickle
+def get_live_news():
+    url = "https://news.google.com/rss?hl=en-IN&gl=IN&ceid=IN:en"
+    response = requests.get(url)
+
+    root = ET.fromstring(response.content)
+
+    headlines = []
+    for item in root.findall(".//item")[:5]:
+        headlines.append(item.find("title").text)
+
+    return headlines
 
 app = Flask(__name__)
 
@@ -130,4 +143,16 @@ def home():
     return render_template_string(html_page,prediction=prediction)
 
 if __name__=="__main__":
+    live_news = get_live_news()
+
+    print("Latest News Headlines with Prediction:")
+
+    for news in live_news:
+        vect = vectorizer.transform([news])
+        prediction = model.predict(vect)[0]
+
+        print(news)
+        print("Prediction:", prediction)
+        print("------------------")
+
     app.run(debug=True)
